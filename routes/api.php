@@ -305,11 +305,9 @@ Route::get('/mart-vendor/{vendorId}', [VendorController::class, 'getMartVendorBy
 
 
 
-Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderApiController::class, 'index']);
     Route::get('/orders/{orderId}', [OrderApiController::class, 'show']);
     Route::get('/orders/{orderId}/billing', [OrderApiController::class, 'billing']);
-});
 
 
 
@@ -404,7 +402,6 @@ Route::prefix('search')->group(function () {
 });
 
 // Chat API routes
-Route::middleware('auth:sanctum')->group(function () {
     // Chat inbox (list all chats)
     Route::get('/chat/inbox', [ChatController::class, 'getInbox']);
     // Get chat messages by order ID
@@ -421,7 +418,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/chat/upload/image', [ChatController::class, 'uploadImage']);
     // Upload video
     Route::post('/chat/upload/video', [ChatController::class, 'uploadVideo']);
-});
+
 ///NEW FILEDS
 Route::get('/unified-search', [SwiggySearchController::class, 'unifiedSearch']);
 Route::post('/chat/{orderId}', [ChatController::class, 'getChat']);

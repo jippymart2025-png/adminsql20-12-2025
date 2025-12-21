@@ -85,97 +85,120 @@ class OTPController extends Controller
     /**
      * Verify OTP
      */
-public function verifyOtp(Request $request)
-{
-    // Accept phone or phoneNumber
-    $phone = $request->input('phone') ?? $request->input('phoneNumber');
+    public function verifyOtp(Request $request)
+    {
+        // Accept either 'phone' or 'phoneNumber'
+        $phone = $request->input('phone') ?? $request->input('phoneNumber');
 
-    // Validation
-    $validator = Validator::make(
-        ['phone' => $phone, 'otp' => $request->otp],
-        [
-            'phone' => 'required|string|regex:/^[0-9]{10,15}$/',
-            'otp'   => 'required|string|size:6',
-        ]
-    );
+        $validator = Validator::make(
+            ['phone' => $phone, 'otp' => $request->input('otp')],
+            [
+                'phone' => 'required|string|regex:/^[0-9]{10,15}$/',
+                'otp' => 'required|string|size:6'
+            ]
+        );
 
-    if ($validator->fails()) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Validation failed',
-            'errors'  => $validator->errors()
-        ], 422);
-    }
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
 
-    // Fetch OTP
-    $otpRecord = Otp::where('phone', $phone)
-        ->where('otp', $request->otp)
-        ->where('verified', false)
-        ->where('expires_at', '>', Carbon::now())
+        $otpValue = $request->input('otp');
+
+        // Find OTP record
+        $otpRecord = Otp::where('phone', $phone)
+            ->where('otp', $otpValue)
+            ->where('expires_at', '>', Carbon::now())
+            ->where('verified', false)
+            ->first();
+
+        if (!$otpRecord) {
+            Otp::where('phone', $phone)
+                ->where('verified', false)
+                ->increment('attempts');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired OTP'
+            ], 401);
+        }
+
+        if ($otpRecord->attempts >= 5) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many failed attempts. Please request a new OTP.'
+            ], 429);
+        }
+
+        // Mark OTP as verified
+        $otpRecord->verified = true;
+        $otpRecord->save();
+
+// Find or create user
+        $user = User::where('phoneNumber', $phone)
+        ->where('role', 'customer')
         ->first();
 
-    if (!$otpRecord) {
-        Otp::where('phone', $phone)
-            ->where('verified', false)
-            ->increment('attempts');
+        if ($user) {
+            // Allow login only if role = customer
+            if ($user->role !== 'customer') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. Only customers can log in using this app.'
+                ], 403);
+            }
+        } else {
+            // Create new customer
+            $firebaseId = 'user_' . Str::uuid();
+
+            $user = User::create([
+                'firstName'     => 'User',
+                'lastName'      => substr($phone, -4),
+                'phoneNumber'   => $phone,
+                'firebase_id'   => $firebaseId,
+                'email'         => null,
+                'password'      => bcrypt(Str::random(16)),
+                'active'        => 1,
+                'isActive'      => true,
+                'role'          => 'customer', // force default role
+                'wallet_amount' => 0,
+                'orderCompleted'=> 0,
+                '_created_at'   => Carbon::now()->format('Y-m-d H:i:s'),
+                '_updated_at'   => Carbon::now()->format('Y-m-d H:i:s'),
+                'createdAt'     => Carbon::now()->format('Y-m-d H:i:s'),
+            ]);
+        }
+
+        // Determine registration status
+        $isRegistered = !(
+            $user->firstName === 'User' ||
+            empty($user->email) ||
+            $user->email === $user->phoneNumber . '@jippymart.in'
+        );
+
+        // Generate API token
+        $token = $user->createToken('otp-auth')->plainTextToken;
 
         return response()->json([
-            'success' => false,
-            'message' => 'Invalid or expired OTP'
-        ], 401);
+            'success' => true,
+            'message' => 'OTP verified successfully',
+            'is_registered' => $isRegistered,
+            'user' => [
+                'id' => $user->id,
+                'firstName' => $user->firstName,
+                'lastName' => $user->lastName,
+                'phoneNumber' => $user->phoneNumber,
+                'email' => $user->email,
+                'firebase_id' => $user->firebase_id,
+                'wallet_amount' => $user->wallet_amount
+            ],
+            'token' => $token,
+            'token_type' => 'Bearer'
+        ]);
     }
-
-    if ($otpRecord->attempts >= 5) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Too many attempts. Request new OTP.'
-        ], 429);
-    }
-
-    // Mark OTP verified
-    $otpRecord->verified = true;
-    $otpRecord->save();
-
-    // 🔍 Check user
-    $user = User::where('phoneNumber', $phone)->first();
-
-    // ❌ User not found → Signup required
-    if (!$user) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Account not found. Please sign up.',
-            'signup_required' => true
-        ], 404);
-    }
-
-    // ❌ Role check
-    if ($user->role !== 'customer') {
-        return response()->json([
-            'success' => false,
-            'message' => 'Access denied. Only customers allowed.'
-        ], 403);
-    }
-
-    // ✅ Login success
-    $token = $user->createToken('otp-auth')->plainTextToken;
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Login successful',
-        'is_registered' => true,
-        'user' => [
-            'id'            => $user->id,
-            'firstName'     => $user->firstName,
-            'lastName'      => $user->lastName,
-            'phoneNumber'   => $user->phoneNumber,
-            'email'         => $user->email,
-            'firebase_id'   => $user->firebase_id,
-            'wallet_amount' => $user->wallet_amount
-        ],
-        'token' => $token,
-        'token_type' => 'Bearer'
-    ]);
-}
 
     /**
      * Send SMS using multiple HTTP client methods
@@ -251,7 +274,9 @@ public function verifyOtp(Request $request)
 
         try {
             // Find existing user (should exist from OTP verification)
-            $user = User::where('phoneNumber', $phone)->first();
+            $user = User::where('phoneNumber', $phone)
+            ->where('role', operator: 'customer')
+            ->first();
 
             if ($user) {
                 // Check if already fully registered
