@@ -3852,7 +3852,7 @@ class RestaurantController extends Controller
             // Detect if it's a video or image based on data URL prefix
             $isVideo = false;
             $fileExtension = null;
-            
+
             // Check for video data URL prefix (e.g., data:video/mp4;base64,)
             if (preg_match('/^data:video\/([a-z0-9]+);base64,/', $base64Data, $matches)) {
                 $isVideo = true;

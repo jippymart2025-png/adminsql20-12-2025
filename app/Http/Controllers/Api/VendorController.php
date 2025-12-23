@@ -93,101 +93,251 @@ class VendorController extends Controller
     }
 
 
-    public function getNearestRestaurantByCategory(Request $request, $categoryId)
-    {
-        $validator = Validator::make($request->all(), [
-            'latitude' => 'required|numeric|between:-90,90',
-            'longitude' => 'required|numeric|between:-180,180',
-            'radius' => 'nullable|numeric|min:0',
-            'filter' => 'nullable|string|in:distance,rating',
-        ]);
+public function getNearestRestaurantByCategory(Request $request, $categoryId)
+{
+    $request->validate([
+        'latitude'  => 'required|numeric|between:-90,90',
+        'longitude' => 'required|numeric|between:-180,180',
+        'radius'    => 'nullable|numeric|min:0',
+        'filter'    => 'nullable|in:distance,rating',
+    ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
+    $lat    = (float) $request->latitude;
+    $lng    = (float) $request->longitude;
+    $radius = (float) ($request->radius ?? 10);
+    $filter = $request->filter ?? 'distance';
+
+    /* ---------- BOUNDING BOX ---------- */
+    $earthRadius = 6371;
+
+    $latDelta = rad2deg($radius / $earthRadius);
+    $lngDelta = rad2deg($radius / $earthRadius / cos(deg2rad($lat)));
+
+    $minLat = $lat - $latDelta;
+    $maxLat = $lat + $latDelta;
+    $minLng = $lng - $lngDelta;
+    $maxLng = $lng + $lngDelta;
+
+    /* ---------- QUERY ---------- */
+    $vendors = Vendor::query()
+        ->where('publish', 1)
+        ->where('isOpen', 1) // manual override still respected
+        ->whereRaw("JSON_CONTAINS(categoryID, JSON_QUOTE(?))", [$categoryId])
+        ->whereBetween('latitude', [$minLat, $maxLat])
+        ->whereBetween('longitude', [$minLng, $maxLng])
+        ->select('*')
+        ->selectRaw(
+            '(6371 * acos(
+                cos(radians(?)) * cos(radians(latitude)) *
+                cos(radians(longitude) - radians(?)) +
+                sin(radians(?)) * sin(radians(latitude))
+            )) AS distance',
+            [$lat, $lng, $lat]
+        )
+        ->having('distance', '<=', $radius)
+        ->when($filter === 'rating', function ($q) {
+            $q->orderByRaw(
+                '(CASE WHEN reviewsCount > 0
+                THEN reviewsSum / reviewsCount
+                ELSE 0 END) DESC'
+            );
+        }, function ($q) {
+            $q->orderBy('distance');
+        })
+        ->limit(50)
+        ->get();
+
+    /* ---------- JSON DECODE + ACTUAL OPEN STATUS ---------- */
+    $jsonFields = [
+        'photos',
+        'workingHours',
+        'categoryID',
+        'categoryTitle',
+        'filters',
+        'adminCommission',
+        'specialDiscount',
+        'restaurantMenuPhotos',
+        'g',
+    ];
+
+    $vendors->transform(function ($vendor) use ($jsonFields) {
+
+        // Decode JSON fields
+        foreach ($jsonFields as $field) {
+            if (!empty($vendor->$field) && is_string($vendor->$field)) {
+                $decoded = json_decode($vendor->$field, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $vendor->$field = $decoded;
+                }
+            }
         }
 
-        $userLat = $request->input('latitude');
-        $userLon = $request->input('longitude');
-        $radius = $request->input('radius', 10); // default radius = 10 km
-        $filter = strtolower($request->input('filter', 'distance'));
+        // ✅ REAL-TIME OPEN STATUS
+        $vendor->actualIsOpen = $this->calculateActualIsOpen(
+            (bool) $vendor->isOpen,
+            $vendor->workingHours ?? null
+        );
 
-        try {
-            // ✅ Base query
-            $query = Vendor::query()
-                ->where('publish', 1)
-                ->where('isOpen', 1)
-                ->where(function ($q) use ($categoryId) {
-                    $q->where('categoryID', 'LIKE', "%{$categoryId}%");
-                });
+        return $vendor;
+    });
 
-            // ✅ Ensure coordinates exist
-            $query->whereNotNull('latitude')
-                  ->whereNotNull('longitude')
-                  ->select('vendors.*')
-                  ->selectRaw(
-                      '(6371 * acos(cos(radians(?)) * cos(radians(latitude))
-                      * cos(radians(longitude) - radians(?))
-                      + sin(radians(?)) * sin(radians(latitude)))) AS distance',
-                      [$userLat, $userLon, $userLat]
-                  )
-                  ->having('distance', '<=', $radius);
+    return response()->json([
+        'success' => true,
+        'count'   => $vendors->count(),
+        'data'    => $vendors,
+    ]);
+}
 
-            // ✅ Sorting
-            if ($filter === 'rating') {
-                $query->orderByRaw('CASE WHEN COALESCE(reviewsCount, 0) > 0 THEN COALESCE(reviewsSum, 0) / NULLIF(reviewsCount, 0) ELSE 0 END DESC')
-                      ->orderByRaw('COALESCE(reviewsCount, 0) DESC');
-            } else {
-                $query->orderBy('distance', 'asc');
+    protected function calculateActualIsOpen(bool $isOpenFlag, ?array $workingHours): bool
+    {
+        // TIER 1: Manual Override Check
+        // If restaurant is manually closed (isOpen = false), always return false
+        if (!$isOpenFlag) {
+            return false;
+        }
+
+        // TIER 2: Working Hours Check
+        // Restaurant is not manually closed (isOpen = true), now check working hours
+
+        // Validate and check if working hours are configured
+        if (empty($workingHours) || !is_array($workingHours)) {
+            return false;
+        }
+
+        // Check if working hours are disabled (all timeslots are empty)
+        $hasValidWorkingHours = false;
+        foreach ($workingHours as $daySchedule) {
+            // Handle both property orders: {"day":"Monday","timeslot":[...]} or {"timeslot":[...],"day":"Monday"}
+            if (!isset($daySchedule['timeslot']) || !is_array($daySchedule['timeslot']) || empty($daySchedule['timeslot'])) {
+                continue;
             }
 
-            // ✅ Fetch
-            $vendors = $query->get()->map(function ($item) {
-                $safeDecode = function ($value) {
-                    if (empty($value) || !is_string($value)) return $value;
-                    $decoded = json_decode($value, true);
-                    return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
-                };
+            foreach ($daySchedule['timeslot'] as $timeslot) {
+                $fromRaw = isset($timeslot['from']) ? trim((string)$timeslot['from']) : '';
+                $toRaw = isset($timeslot['to']) ? trim((string)$timeslot['to']) : '';
+                if ($fromRaw !== '' && $toRaw !== '') {
+                    $hasValidWorkingHours = true;
+                    break 2;
+                }
+            }
+        }
 
-                // Decode all JSON fields safely
-                foreach ([
-                    'restaurantMenuPhotos', 'photos', 'workingHours', 'filters',
-                    'coordinates', 'lastAutoScheduleUpdate', 'createdAt',
-                    'categoryID', 'categoryTitle', 'specialDiscount',
-                    'adminCommission', 'g'
-                ] as $field) {
-                    if (isset($item->$field)) {
-                        $item->$field = $safeDecode($item->$field);
-                    }
+        // If working hours are disabled (no valid timeslots), restaurant is closed
+        if (!$hasValidWorkingHours) {
+            return false;
+        }
+
+        // Working hours are enabled, check if current time is within working hours
+        // Use Asia/Kolkata timezone for Indian restaurants (explicitly set for restaurant operations)
+        // Defaults to Asia/Kolkata for restaurant operations regardless of app timezone
+        $tz = 'Asia/Kolkata';
+        $now = Carbon::now($tz);
+        $currentDay = $now->format('l'); // Returns: Monday, Tuesday, Wednesday, etc.
+        $currentMinutes = (int)$now->format('H') * 60 + (int)$now->format('i');
+
+
+        // Check if current time is within any timeslot for today
+        // Loops through all days and checks all timeslots (handles multiple slots per day)
+        foreach ($workingHours as $daySchedule) {
+            // Match current day (property order doesn't matter)
+            $dayName = $daySchedule['day'] ?? null;
+
+            // Skip if no day name or doesn't match current day
+            if ($dayName === null || trim($dayName) === '') {
+                continue;
+            }
+
+            // Normalize day names for comparison (handle any whitespace)
+            $dayNameNormalized = trim($dayName);
+            if ($dayNameNormalized !== $currentDay) {
+                continue;
+            }
+
+            // Get timeslots for this day (property order doesn't matter)
+            $timeslots = $daySchedule['timeslot'] ?? null;
+            if (!is_array($timeslots) || empty($timeslots)) {
+                continue;
+            }
+
+            // Check each timeslot for today (processes in order: morning → afternoon → evening)
+            foreach ($timeslots as $timeslot) {
+                $fromRaw = isset($timeslot['from']) ? trim((string)$timeslot['from']) : '';
+                $toRaw = isset($timeslot['to']) ? trim((string)$timeslot['to']) : '';
+
+                if ($fromRaw === '' || $toRaw === '') {
+                    continue;
                 }
 
-                return $item;
-            });
+                $fromMinutes = $this->parseTimeToMinutes($fromRaw, $tz);
+                $toMinutes = $this->parseTimeToMinutes($toRaw, $tz);
 
-            return response()->json([
-                'success' => true,
-                'count' => $vendors->count(),
-                'filter' => $filter,
-                'data' => $vendors->values(),
-            ]);
+                if ($fromMinutes === null || $toMinutes === null) {
+                    // Log warning for invalid time format (data issue)
+                    Log::warning('Invalid time format in timeslot', [
+                        'day' => $dayName,
+                        'from' => $fromRaw,
+                        'to' => $toRaw
+                    ]);
+                    continue;
+                }
+
+                // Check if current time falls within this timeslot
+                if ($toMinutes >= $fromMinutes) {
+                    // Normal case: same day time range (e.g., 09:00 to 17:00, or 07:00 to 11:00)
+                    if ($currentMinutes >= $fromMinutes && $currentMinutes <= $toMinutes) {
+                        return true; // Restaurant is OPEN - found matching timeslot
+                    }
+                } else {
+                    // Edge case: crosses midnight (e.g., 22:00 to 02:00)
+                    if ($currentMinutes >= $fromMinutes || $currentMinutes <= $toMinutes) {
+                        return true; // Restaurant is OPEN - found matching timeslot
+                    }
+                }
+            }
+        }
+
+        // Not within any working hours timeslot
+        return false;
+    }
+
+        protected function parseTimeToMinutes(string $timeString, string $timezone = 'UTC'): ?int
+    {
+        $timeString = trim($timeString);
+        if ($timeString === '') {
+            return null;
+        }
+
+        // Try simple HH:MM format first
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', $timeString, $matches)) {
+            $hours = (int)$matches[1];
+            $minutes = (int)$matches[2];
+            if ($hours >= 0 && $hours <= 23 && $minutes >= 0 && $minutes <= 59) {
+                return $hours * 60 + $minutes;
+            }
+        }
+
+        // Fallback to Carbon parsing
+        $formats = ['H:i', 'G:i', 'h:i A', 'g:i A', 'H:i:s', 'h:i:s A'];
+        foreach ($formats as $format) {
+            try {
+                $dt = Carbon::createFromFormat($format, $timeString, $timezone);
+                if ($dt !== false) {
+                    return (int)$dt->format('H') * 60 + (int)$dt->format('i');
+                }
+            } catch (\Exception $e) {
+                continue;
+            }
+        }
+
+        // Final fallback
+        try {
+            $dt = Carbon::parse($timeString, $timezone);
+            return (int)$dt->format('H') * 60 + (int)$dt->format('i');
         } catch (\Exception $e) {
-            Log::error('Nearest Category Restaurants Error: ' . $e->getMessage(), [
-                'category_id' => $categoryId,
-                'latitude' => $userLat,
-                'longitude' => $userLon,
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch nearest restaurants',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return null;
         }
     }
+
 
     public function getMartVendorById($vendorId): \Illuminate\Http\JsonResponse
     {

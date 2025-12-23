@@ -6,7 +6,6 @@ use App\Services\FirebaseStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\MartBanner;
 
@@ -100,19 +99,6 @@ class MartBannerController extends Controller
     // Create (SQL)
     public function store(Request $request)
     {
-        // Check if POST data was truncated due to size limit
-        if (empty($request->all()) && $request->server('CONTENT_LENGTH') > 0) {
-            $contentLength = (int) $request->server('CONTENT_LENGTH');
-            $postMaxSize = $this->parseSize(ini_get('post_max_size'));
-
-            if ($contentLength > $postMaxSize) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'File size (' . round($contentLength / 1024 / 1024, 2) . ' MB) exceeds PHP post_max_size limit (' . ini_get('post_max_size') . '). Please increase post_max_size and upload_max_filesize in php.ini or compress your image.'
-                ], 413);
-            }
-        }
-
         $request->validate([
             'title' => 'required|string|max:255',
             'set_order' => 'nullable|integer',
@@ -123,7 +109,7 @@ class MartBannerController extends Controller
             'external_link' => 'nullable|string|max:2000',
             'ads_link' => 'nullable|string|max:2000',
         ]);
-        $id = (string) Str::uuid();
+//        $id = (string) Str::uuid();
         $imageUrl = null;
         if ($request->hasFile('photo')) {
             $imageUrl = $this->firebaseStorage->uploadFile(
@@ -132,7 +118,7 @@ class MartBannerController extends Controller
             );
         }
         MartBanner::create([
-            'id' => $id,
+//            'id' => $id,
             'title' => $request->input('title',''),
             'description' => $request->input('description',''),
             'text' => $request->input('text',''),
@@ -201,7 +187,7 @@ class MartBannerController extends Controller
         ]);
 
         // Log activity
-        Log::info('✅ Mart banner updated:', ['id' => $id, 'title' => $request->input('title')]);
+        \Log::info('✅ Mart banner updated:', ['id' => $id, 'title' => $request->input('title')]);
 
         return response()->json(['success'=>true]);
     }
@@ -251,32 +237,6 @@ class MartBannerController extends Controller
         \Log::info('✅ Mart banners bulk deleted:', ['count' => $count, 'ids' => $ids]);
 
         return response()->json(['success'=>true,'message'=>$count.' mart banners deleted successfully','count'=>$count]);
-    }
-
-    /**
-     * Parse size value from PHP ini settings
-     *
-     * @param  string  $size
-     * @return int
-     */
-    protected function parseSize(string $size): int
-    {
-        $size = trim($size);
-        $last = strtolower($size[strlen($size) - 1]);
-        $size = (int) $size;
-
-        switch ($last) {
-            case 'g':
-                $size *= 1024;
-                // no break
-            case 'm':
-                $size *= 1024;
-                // no break
-            case 'k':
-                $size *= 1024;
-        }
-
-        return $size;
     }
 
     /**

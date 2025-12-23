@@ -105,7 +105,7 @@ class DriverControllerLogin extends Controller
                 "active" => $autoApprove ? 1 : 0,
                 "isDocumentVerify" =>  0,
                 "zoneId" => $request->zone_id,
-                "createdAt" => Carbon::now(),
+                "createdAt" => now(),
                 "provider" => "email",
                 "appIdentifier" => $request->app_identifier,
             ]);
@@ -145,6 +145,7 @@ class DriverControllerLogin extends Controller
                 "fcmToken" => $request->fcm_token,
                 "active" => $autoApprove ? 1 : 0,
                 "isDocumentVerify" => 0,
+                "createdAt" => now(),
                 "zoneId" => $request->zone_id,
                 "provider" => "email",
                 "appIdentifier" => $request->app_identifier,
