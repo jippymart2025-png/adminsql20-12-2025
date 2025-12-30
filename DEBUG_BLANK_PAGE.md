@@ -83,3 +83,6 @@ php artisan view:cache
 3. Check if the controller method exists and returns the view
 4. Verify the `layouts/app.blade.php` file exists
 
+
+
+

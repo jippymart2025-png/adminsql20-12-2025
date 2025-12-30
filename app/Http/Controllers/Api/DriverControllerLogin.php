@@ -67,103 +67,120 @@ class DriverControllerLogin extends Controller
     }
 
 
-    public function driverSignup(Request $request): \Illuminate\Http\JsonResponse
-    {
-        // Common validation
+public function driverSignup(Request $request): \Illuminate\Http\JsonResponse
+{
+    // Common validation
+    $request->validate([
+        "type" => "required",  // email / mobileNumber / google / apple
+        "first_name" => "required",
+        "last_name" => "required",
+        "zone_id" => "required|string",
+        "app_identifier" => "required"  // android or ios
+    ]);
+
+    $autoApprove = true;
+
+    // EMAIL SIGNUP
+    if ($request->type === "email") {
+
         $request->validate([
-            "type" => "required",  // email / mobileNumber / google / apple
-            "first_name" => "required",
-            "last_name" => "required",
-            "zone_id" => "required",
-            "app_identifier" => "required"  // android or ios
+            "email" => "required|email",
+            "password" => "required|min:6"
         ]);
 
-        // Auto-approve settings
-        $autoApprove = true;
-//        $isDocumentVerify = false;
+        // Check uniqueness of email for drivers only
+        $existing = User::where("email", strtolower($request->email))
+            ->where("role", "driver")
+            ->first();
 
-        // EMAIL SIGNUP
-        if ($request->type == "email") {
-
-            $request->validate([
-                "email" => "required|email|unique:users,email",
-                "password" => "required|min:6"
-            ]);
-
-            $firebaseId = $this->generateFirebaseId();
-
-            $user = User::create([
-                "firebase_id" => $firebaseId,
-                "firstName" => $request->first_name,
-                "lastName" => $request->last_name,
-                "email" => strtolower($request->email),
-                "phoneNumber" => $request->phone_number,
-                "countryCode" => $request->country_code,
-                "password" => Hash::make($request->password),
-                "role" => "driver",
-                "fcmToken" => $request->fcm_token,
-                "active" => $autoApprove ? 1 : 0,
-                "isDocumentVerify" =>  0,
-                "zoneId" => $request->zone_id,
-                "createdAt" => now(),
-                "provider" => "email",
-                "appIdentifier" => $request->app_identifier,
-            ]);
-
+        if ($existing) {
             return response()->json([
-                "success" => true,
-                "auto_approve" => $autoApprove,
-                "message" => $autoApprove ? "Account created successfully" : "Your signup is under approval.",
-                "data" => $user
-            ]);
+                "success" => false,
+                "message" => "Email already exists"
+            ], 409);
         }
 
-        // GOOGLE / APPLE / MOBILE SIGNUP
-        if (in_array($request->type, ["google", "apple", "mobileNumber"])) {
+        $firebaseId = $this->generateFirebaseId();
 
-            if ($request->email) {
-                $existing = User::where("email", strtolower($request->email))->first();
-                if ($existing) {
-                    return response()->json([
-                        "success" => false,
-                        "message" => "Email already exists"
-                    ], 409);
-                }
-            }
-
-            $firebaseId = $this->generateFirebaseId();
-
-            $user = User::create([
-                "firebase_id" => $firebaseId,
-                "firstName" => $request->first_name,
-                "lastName" => $request->last_name,
-                "email" => strtolower($request->email),
-                "phoneNumber" => $request->phone_number,
-                "countryCode" => $request->country_code,
-                "password" => Hash::make($request->password),
-                "role" => "driver",
-                "fcmToken" => $request->fcm_token,
-                "active" => $autoApprove ? 1 : 0,
-                "isDocumentVerify" => 0,
-                "createdAt" => now(),
-                "zoneId" => $request->zone_id,
-                "provider" => "email",
-                "appIdentifier" => $request->app_identifier,
-            ]);
-
-            return response()->json([
-                "success" => true,
-                "auto_approve" => $autoApprove,
-                "message" => $autoApprove ? "Account created successfully" : "Your signup is under approval.",
-                "data" => $user
-            ]);
-        }
+        $user = User::create([
+            "firebase_id" => $firebaseId,
+            "firstName" => $request->first_name,
+            "lastName" => $request->last_name,
+            "email" => strtolower($request->email),
+            "phoneNumber" => $request->phone_number,
+            "countryCode" => $request->country_code,
+            "password" => Hash::make($request->password),
+            "role" => "driver",
+            "fcmToken" => $request->fcm_token,
+            "active" => $autoApprove ? 1 : 0,
+            "isDocumentVerify" => 0,
+            "wallet_amount" => 0,
+            "deliveryAmount" => 0,
+            "zoneId" => $request->zone_id,
+            "provider" => "email",
+            "appIdentifier" => $request->app_identifier,
+            "createdAt" => now(),
+        ]);
 
         return response()->json([
-            "success" => false,
-            "message" => "Invalid signup type"
-        ], 400);
+            "success" => true,
+            "auto_approve" => $autoApprove,
+            "message" => $autoApprove ? "Account created successfully" : "Your signup is under approval.",
+            "data" => $user
+        ]);
     }
+
+    // GOOGLE / APPLE / MOBILE SIGNUP
+    if (in_array($request->type, ["google", "apple", "mobileNumber"])) {
+
+        if ($request->email) {
+            $existing = User::where("email", strtolower($request->email))
+                ->where("role", "driver")
+                ->first();
+            if ($existing) {
+                return response()->json([
+                    "success" => false,
+                    "message" => "Email already exists"
+                ], 409);
+            }
+        }
+
+        $firebaseId = $this->generateFirebaseId();
+
+        $user = User::create([
+            "firebase_id" => $firebaseId,
+            "firstName" => $request->first_name,
+            "lastName" => $request->last_name,
+            "email" => strtolower($request->email),
+            "phoneNumber" => $request->phone_number,
+            "countryCode" => $request->country_code,
+            "password" => Hash::make($request->password ?? bin2hex(random_bytes(4))), // fallback password
+            "role" => "driver",
+            "fcmToken" => $request->fcm_token,
+            "active" => $autoApprove ? 1 : 0,
+            "isDocumentVerify" => 0,
+            "wallet_amount" => 0,
+            "deliveryAmount" => 0,
+            "zoneId" => $request->zone_id,
+            "provider" => $request->type,
+            "appIdentifier" => $request->app_identifier,
+            "createdAt" => now(),
+        ]);
+
+        return response()->json([
+            "success" => true,
+            "auto_approve" => $autoApprove,
+            "message" => $autoApprove ? "Account created successfully" : "Your signup is under approval.",
+            "data" => $user
+        ]);
+    }
+
+    return response()->json([
+        "success" => false,
+        "message" => "Invalid signup type"
+    ], 400);
+}
+
 
     // --- FIREBASE ID GENERATOR ---
     private function generateFirebaseId($length = 20)

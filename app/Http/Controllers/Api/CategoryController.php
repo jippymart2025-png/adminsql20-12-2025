@@ -49,7 +49,7 @@ class CategoryController extends Controller
              * ------------------------------------- */
             // Get categories for homepage
             $categories = VendorCategory::where('show_in_homepage', true)
-                ->where('publish', true)
+                ->where('publish', 1)
                 ->orderBy('title', 'asc') // Default order by title
                 ->get();
 
@@ -132,7 +132,7 @@ class CategoryController extends Controller
             /** ---------------------------------------
              * Only execute DB queries if cache miss or force refresh
              * ------------------------------------- */
-            $categories = VendorCategory::where('publish', true)
+            $categories = VendorCategory::where('publish', 1)
                 ->orderBy('title', 'asc')
                 ->get();
 

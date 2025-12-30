@@ -16,126 +16,158 @@ use Carbon\Carbon;
 
 class restaurantControllerLogin extends Controller
 {
-    public function restaurantLogin(Request $request)
-    {
+public function restaurantLogin(Request $request)
+{
+    $request->validate([
+        "email" => "required|email",
+        "password" => "required"
+    ]);
+
+    // Check if user exists
+    $user = User::where("email", $request->email)
+    ->where("role", "vendor")
+    ->first();
+    if (!$user) {
+        return response()->json([
+            "success" => false,
+            "message" => "No user found for that email."
+        ], 404);
+    }
+
+    // Allow only vendor login
+    if ($user->role !== "vendor") {
+        return response()->json([
+            "success" => false,
+            "message" => "This user is not created in vendor application."
+        ], 403);
+    }
+
+    // Check active status - KEEP integer comparison since field isn't cast yet
+    if ((int)$user->active !== 1) {
+        return response()->json([
+            "success" => false,
+            "message" => "This user is disabled, please contact administrator."
+        ], 403);
+    }
+
+    // Validate password
+    if (!Hash::check($request->password, $user->password)) {
+        return response()->json([
+            "success" => false,
+            "message" => "Wrong password provided for that user."
+        ], 401);
+    }
+
+    // Update FCM token
+    if ($request->has('fcmToken')) {
+        $user->update([
+            'fcmToken' => $request->fcmToken
+        ]);
+    }
+
+    /**
+     * 👉 JSON Decoding Fields
+     */
+    $user->shippingAddress       = !empty($user->shippingAddress)       ? json_decode($user->shippingAddress)       : null;
+    $user->userBankDetails       = !empty($user->userBankDetails)       ? json_decode($user->userBankDetails)       : null;
+    $user->subscriptionExpiryDate = !empty($user->subscriptionExpiryDate) ? json_decode($user->subscriptionExpiryDate) : null;
+
+    // Ensure active field is returned as boolean for Flutter
+    $user->active = (bool)$user->active;
+
+    // Also fix isActive field if it exists
+    if (isset($user->isActive)) {
+        $user->isActive = (bool)$user->isActive;
+    }
+
+    return response()->json([
+        "success" => true,
+        "message" => "Login successful",
+        "data" => $user
+    ], 200);
+}
+
+
+public function restaurantSignup(Request $request): \Illuminate\Http\JsonResponse
+{
+    // Common validation
+    $request->validate([
+        "type" => "required|in:email",
+        "first_name" => "required|string",
+        "last_name" => "required|string",
+        "zone_id" => "required|string",
+        "app_identifier" => "required|in:android,ios",
+    ]);
+
+    // Auto approval settings
+    $autoApprove = false;
+    $isDocumentVerify = false;
+
+    /*
+    |--------------------------------------------------------------------------
+    | EMAIL SIGNUP
+    |--------------------------------------------------------------------------
+    */
+    if ($request->type === "email") {
+
         $request->validate([
             "email" => "required|email",
-            "password" => "required"
+            "password" => "required|min:6",
         ]);
 
-        // Check if user exists
-        $user = User::where("email", $request->email)->first();
-        if (!$user) {
+        // Normalize email
+        $email = strtolower($request->email);
+
+        // 🔴 Check if vendor already exists with same email
+        $vendorExists = User::where('email', $email)
+            ->where('role', 'vendor')
+            ->exists();
+
+        if ($vendorExists) {
             return response()->json([
                 "success" => false,
-                "message" => "No user found for that email."
-            ], 404);
+                "message" => "Vendor with this email already exists."
+            ], 409);
         }
 
-        // Allow only vendor login
-        if ($user->role !== "vendor") {
-            return response()->json([
-                "success" => false,
-                "message" => "This user is not created in vendor application."
-            ], 403);
-        }
+        // Generate Firebase ID
+        $firebaseId = $this->generateFirebaseId();
 
-        // Check active status
-        if ((int)$user->active !== 1) {
-            return response()->json([
-                "success" => false,
-                "message" => "This user is disabled, please contact administrator."
-            ], 403);
-        }
-
-        // Validate password
-        if (!Hash::check($request->password, $user->password)) {
-            return response()->json([
-                "success" => false,
-                "message" => "Wrong password provided for that user."
-            ], 401);
-        }
-
-        // Update FCM token
-        if ($request->has('fcmToken')) {
-            $user->update([
-                'fcmToken' => $request->fcmToken
-            ]);
-        }
-
-        /**
-         * 👉 JSON Decoding Fields
-         */
-        $user->shippingAddress       = !empty($user->shippingAddress)       ? json_decode($user->shippingAddress)       : null;
-        $user->userBankDetails       = !empty($user->userBankDetails)       ? json_decode($user->userBankDetails)       : null;
-        $user->subscriptionExpiryDate = !empty($user->subscriptionExpiryDate) ? json_decode($user->subscriptionExpiryDate) : null;
+        // Create Vendor (Restaurant)
+        $user = User::create([
+            "firebase_id" => $firebaseId,
+            "firstName" => $request->first_name,
+            "lastName" => $request->last_name,
+            "email" => $email,
+            "phoneNumber" => $request->phone_number ?? null,
+            "countryCode" => $request->country_code ?? null,
+            "password" => Hash::make($request->password),
+            "role" => "vendor",
+            "vType" => "restaurant",
+            "fcmToken" => $request->fcm_token ?? null,
+            "isActive" => $autoApprove ? 1 : 0,
+            "isDocumentVerify" => $isDocumentVerify ? 1 : 0,
+            "zoneId" => $request->zone_id,
+            "provider" => "email",
+            "appIdentifier" => $request->app_identifier,
+            "createdAt" => Carbon::now(),
+        ]);
 
         return response()->json([
             "success" => true,
-            "message" => "Login successful",
-            "data" => $user
-        ], 200);
+            "auto_approve" => $autoApprove,
+            "message" => $autoApprove
+                ? "Account created successfully."
+                : "Your signup is under approval.",
+            "data" => $user,
+        ], 201);
     }
 
-
-    public function restaurantSignup(Request $request): \Illuminate\Http\JsonResponse
-    {
-        // Common validation
-        $request->validate([
-            "type" => "required",  // email / mobileNumber / google / apple
-            "first_name" => "required",
-            "last_name" => "required",
-            "zone_id" => "required",
-            "app_identifier" => "required"  // android or ios
-        ]);
-
-        // Auto-approve settings
-        $autoApprove = false;
-        $isDocumentVerify = false;
-
-        // EMAIL SIGNUP
-        if ($request->type == "email") {
-
-            $request->validate([
-                "email" => "required|email|unique:users,email",
-                "password" => "required|min:6"
-            ]);
-
-            $firebaseId = $this->generateFirebaseId();
-
-            $user = User::create([
-                "firebase_id" => $firebaseId,
-                "firstName" => $request->first_name,
-                "lastName" => $request->last_name,
-                "email" => strtolower($request->email),
-                "phoneNumber" => $request->phone_number,
-                "countryCode" => $request->country_code,
-                "password" => Hash::make($request->password),
-                "role" => "vendor",
-                "vType" => "restaurant",
-                "fcmToken" => $request->fcm_token,
-                "isActive" => $autoApprove ? 0 : 1,
-                "isDocumentVerify" => $isDocumentVerify ? 0 : 1,
-                "zoneId" => $request->zone_id,
-                "provider" => "email",
-                "appIdentifier" => $request->app_identifier,
-                "createdAt" => Carbon::now(),
-
-            ]);
-
-            return response()->json([
-                "success" => true,
-                "auto_approve" => $autoApprove,
-                "message" => $autoApprove ? "Account created successfully" : "Your signup is under approval.",
-                "data" => $user
-            ]);
-        }
-
-        return response()->json([
-            "success" => false,
-            "message" => "Invalid signup type"
-        ], 400);
-    }
+    return response()->json([
+        "success" => false,
+        "message" => "Invalid signup type.",
+    ], 400);
+}
 
     // --- FIREBASE ID GENERATOR ---
     private function generateFirebaseId($length = 20)

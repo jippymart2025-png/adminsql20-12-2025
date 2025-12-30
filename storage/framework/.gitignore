@@ -1,9 +1,25 @@
-compiled.php
-config.php
-down
-events.scanned.php
-maintenance.php
-routes.php
-routes.scanned.php
-schedule-*
-services.json
+# macOS
+.DS_Store
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+
+# Laravel
+/vendor
+.env
+/public/hot
+/public/storage
+/storage/*.key
+/storage/logs/*
+.phpunit.result.cache
+
+# Docker / Homestead
+docker-compose.override.yml
+Homestead.json
+Homestead.yaml
+
+# IDEs
+/.idea
+/.vscode

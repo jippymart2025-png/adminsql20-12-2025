@@ -108,7 +108,7 @@ class DriverSqlBridgeController extends FirestoreUtilsController
         }
 
         $columns = Schema::getColumnListing('users');
-        $exclude = ['id','firebase_id','created_at','updated_at'];
+        $exclude = ['id','firebase_id','createdAt','updated_at'];
         $allowed = array_diff($columns,$exclude);
         $incoming = $request->all();
 
@@ -235,29 +235,33 @@ class DriverSqlBridgeController extends FirestoreUtilsController
     /**
      * Increment driver delivery-amount field.
      */
-    public function updateUserDeliveryAmount(Request $request): JsonResponse
-    {
-        $request->validate([
-            'user_id' => 'required|string',
-            'amount' => 'required|numeric',
-        ]);
+public function updateUserDeliveryAmount(Request $request): JsonResponse
+{
+    $request->validate([
+        'user_id' => 'required|string',
+        'amount'  => 'required|numeric',
+    ]);
 
-        $updated = User::query()
-            ->where('firebase_id', $request->user_id)
-            ->increment('deliveryAmount', (float) $request->amount);
+    $query = User::query()
+        ->where('firebase_id', trim($request->user_id));
 
-        if (!$updated) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Driver not found',
-            ], 404);
-        }
-
+    // ✅ check existence first
+    if (!$query->exists()) {
         return response()->json([
-            'success' => true,
-            'message' => 'Delivery amount updated',
-        ]);
+            'success' => false,
+            'message' => 'Driver not found',
+        ], 404);
     }
+
+    // ✅ now safely increment (even if amount = 0)
+    $query->increment('deliveryAmount', (float) $request->amount);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Delivery amount updated',
+    ]);
+}
+
 
     /**
      * Return onboarding screens filtered for driver app by default.
@@ -617,36 +621,36 @@ class DriverSqlBridgeController extends FirestoreUtilsController
     /**
      * Hard delete driver, their documents and wallet history.
      */
-    public function deleteDriver(Request $request): JsonResponse
-    {
-        $request->validate([
-            'driver_id' => 'required|string',
-        ]);
+public function deleteDriver(string $driver_id): JsonResponse
+{
+    try {
+        DB::transaction(function () use ($driver_id) {
 
-        try {
-            DB::transaction(function () use ($request) {
-                DB::table('wallet')->where('user_id', $request->driver_id)->delete();
-                DB::table('delivery_wallet_record')->where('driverId', $request->driver_id)->delete();
+            DB::table('wallet')
+                ->where('user_id', $driver_id)
+                ->delete();
 
-                // If documents_verify has column driverID instead of id → fix here
-                documents_verify::query()->where('id', $request->driver_id)->delete();
+            DB::table('delivery_wallet_record')
+                ->where('driverId', $driver_id)
+                ->delete();
 
-                DriverPayout::query()->where('driverID', $request->driver_id)->delete();
-                User::query()->where('firebase_id', $request->driver_id)->delete();
-            });
+            documents_verify::where('id', $driver_id)->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Driver and related wallet records removed successfully.',
-            ]);
+            User::where('firebase_id', $driver_id)->delete();
+        });
 
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Delete failed: ' . $e->getMessage(),
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Driver and related wallet records removed successfully.',
+        ], 200);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ], 500);
     }
+}
 
     /**
      * Send wallet top-up email using stored templates.

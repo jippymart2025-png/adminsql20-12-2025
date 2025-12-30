@@ -4,6 +4,7 @@
 /storage/*.key
 /vendor
 .env
+/storage/logs/
 .phpunit.result.cache
 docker-compose.override.yml
 Homestead.json
@@ -12,3 +13,9 @@ npm-debug.log
 yarn-error.log
 /.idea
 /.vscode
+# macOS
+.DS_Store
+
+# Logs
+/storage/logs/*
+

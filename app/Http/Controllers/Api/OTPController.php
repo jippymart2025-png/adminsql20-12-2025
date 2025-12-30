@@ -17,6 +17,12 @@ class OTPController extends Controller
     private $smsApiUrl = 'https://restapi.smscountry.com/v0.1/Accounts/g3NwQZX8qbjHARPZktFZ/SMSes/';
     private $authKey = 'Basic ZzNOd1FaWDhxYmpIQVJQWmt0Rlo6Y2lXdzBZRHUzbTFRY3hkMEFBSmZXaHNmczQ4TXRXdEs4Sk91TnR0Zg==';
     private $senderId = 'JIPPYM';
+    /**
+     * DLT Template ID - Required for sending SMS in India
+     * Register your template in SMS Country dashboard and set the Template ID here
+     * Template format should be: "Your OTP for jippymart login is {#}. Please do not share this OTP with anyone. It is valid for the next 2 minutes-jippymart.in."
+     */
+    private $templateId = null;
 
 
     /**
@@ -37,6 +43,15 @@ class OTPController extends Controller
         }
 
         $phone = $request->phone;
+
+        // Check if there's a recent OTP request (rate limiting)
+        if ($phone === '9999999999') {
+            return response()->json([
+                'success' => true,
+                'message' => 'OTP sent successfully',
+                'expires_in' => 600 // 10 minutes in seconds
+            ]);
+        }
 
         // Check if there's a recent OTP request (rate limiting)
         $recentOtp = Otp::where('phone', $phone)
@@ -82,6 +97,7 @@ class OTPController extends Controller
         }
     }
 
+
     /**
      * Verify OTP
      */
@@ -108,6 +124,60 @@ class OTPController extends Controller
 
         $otpValue = $request->input('otp');
 
+        // Test override: allow fixed test number/otp without DB OTP check
+        if ($phone === '9999999999' && $otpValue === '123456') {
+            $user = User::where('phoneNumber', $phone)
+                ->where('role', 'customer')
+                ->first();
+
+            if (!$user) {
+                $firebaseId = 'user_' . Str::uuid();
+
+                $user = User::create([
+                    'firstName'     => 'User',
+                    'lastName'      => substr($phone, -4),
+                    'phoneNumber'   => $phone,
+                    'firebase_id'   => $firebaseId,
+                    'email'         => null,
+                    'password'      => bcrypt(Str::random(16)),
+                    'active'        => 1,
+                    'isActive'      => true,
+                    'role'          => 'customer',
+                    'wallet_amount' => 0,
+                    'orderCompleted'=> 0,
+                    '_created_at'   => Carbon::now()->format('Y-m-d H:i:s'),
+                    '_updated_at'   => Carbon::now()->format('Y-m-d H:i:s'),
+                    'createdAt'     => Carbon::now()->format('Y-m-d H:i:s'),
+                ]);
+            }
+
+            $isRegistered = !(
+                $user->firstName === 'User' ||
+                empty($user->email) ||
+                $user->email === $user->phoneNumber . '@jippymart.in'
+            );
+
+            $token = $user->createToken('otp-auth')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'OTP verified successfully',
+                'is_registered' => $isRegistered,
+                'user' => [
+                    'id' => $user->id,
+                    'firstName' => $user->firstName,
+                    'lastName' => $user->lastName,
+                    'phoneNumber' => $user->phoneNumber,
+                    'email' => $user->email,
+                    'firebase_id' => $user->firebase_id,
+                    'wallet_amount' => $user->wallet_amount
+                ],
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]);
+        }
+
+        // Normal OTP record lookup
         // Find OTP record
         $otpRecord = Otp::where('phone', $phone)
             ->where('otp', $otpValue)
@@ -200,6 +270,8 @@ class OTPController extends Controller
         ]);
     }
 
+
+
     /**
      * Send SMS using multiple HTTP client methods
      */
@@ -216,6 +288,11 @@ class OTPController extends Controller
             "Tool" => "API"
         ];
 
+        // Add Template ID if configured (required for DLT compliance in India)
+        if ($this->templateId) {
+            $payload["TemplateId"] = $this->templateId;
+        }
+
         // Try multiple methods to send SMS (prioritize cURL since it's working)
         $methods = [
             'curl' => fn() => $this->sendSmsWithCurl($payload),
@@ -228,10 +305,12 @@ class OTPController extends Controller
             try {
                 $result = $callback();
                 if ($result) {
-                    Log::info("SMS sent successfully using {$method}", [
-                        'phone' => $phone,
-                        'method' => $method
-                    ]);
+                    if (config('app.debug')) {
+                        Log::debug("SMS sent successfully using {$method}", [
+                            'phone' => $phone,
+                            'method' => $method
+                        ]);
+                    }
                     return true;
                 }
             } catch (\Exception $e) {
@@ -275,8 +354,8 @@ class OTPController extends Controller
         try {
             // Find existing user (should exist from OTP verification)
             $user = User::where('phoneNumber', $phone)
-            ->where('role', operator: 'customer')
-            ->first();
+                ->where('role', 'customer')
+                ->first();
 
             if ($user) {
                 // Check if already fully registered
@@ -317,7 +396,26 @@ class OTPController extends Controller
                     $newUserData['referral_code'] = $request->input('referralCode');
                 }
 
-                $user = $this->createNewUser($phone, $newUserData);
+                // Create new user
+                $firebaseId = 'user_' . Str::uuid();
+
+                $user = User::create([
+                    'firstName' => $newUserData['firstName'],
+                    'lastName' => $newUserData['lastName'],
+                    'phoneNumber' => $phone,
+                    'firebase_id' => $firebaseId,
+                    'email' => $newUserData['email'],
+                    'password' => bcrypt(Str::random(16)),
+                    'active' => 1,
+                    'isActive' => true,
+                    'role' => 'customer',
+                    'wallet_amount' => 0,
+                    'orderCompleted' => 0,
+                    'referral_code' => $newUserData['referral_code'] ?? null,
+                    '_created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                    '_updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                    'createdAt' => Carbon::now()->format('Y-m-d H:i:s'),
+                ]);
             }
 
             // Refresh user to get updated data
@@ -338,7 +436,7 @@ class OTPController extends Controller
             Log::error('Signup Error: ' . $e->getMessage(), [
                 'phone' => $phone,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null
             ]);
 
             // Return more detailed error in development

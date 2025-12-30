@@ -521,26 +521,26 @@ public function destroy(string $firebaseId)
             $userId = $user->id;
 
             // ================= restaurant_orders =================
-            if (Schema::hasTable('restaurant_orders')) {
+            // if (Schema::hasTable('restaurant_orders')) {
 
-                if (Schema::hasColumn('restaurant_orders', 'user_id')) {
-                    DB::table('restaurant_orders')
-                        ->where('user_id', $userId)
-                        ->delete();
-                }
+            //     if (Schema::hasColumn('restaurant_orders', 'user_id')) {
+            //         DB::table('restaurant_orders')
+            //             ->where('user_id', $userId)
+            //             ->delete();
+            //     }
 
-                if (Schema::hasColumn('restaurant_orders', 'firebase_id')) {
-                    DB::table('restaurant_orders')
-                        ->where('firebase_id', $firebaseId)
-                        ->delete();
-                }
+            //     if (Schema::hasColumn('restaurant_orders', 'firebase_id')) {
+            //         DB::table('restaurant_orders')
+            //             ->where('firebase_id', $firebaseId)
+            //             ->delete();
+            //     }
 
-                if (Schema::hasColumn('restaurant_orders', 'authorID')) {
-                    DB::table('restaurant_orders')
-                        ->where('authorID', $firebaseId)
-                        ->delete();
-                }
-            }
+            //     if (Schema::hasColumn('restaurant_orders', 'authorID')) {
+            //         DB::table('restaurant_orders')
+            //             ->where('authorID', $firebaseId)
+            //             ->delete();
+            //     }
+            // }
             // ================= favorite_restaurant =================
             if (Schema::hasTable('favorite_restaurant')) {
 

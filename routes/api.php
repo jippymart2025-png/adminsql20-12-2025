@@ -208,6 +208,7 @@ Route::post('/cache/flush/restaurants', [CacheController::class, 'flushRestauran
 Route::post('/cache/flush/settings', [CacheController::class, 'flushSettingsCache']);
 Route::post('/cache/flush/categories', [CacheController::class, 'flushCategoryCache']);
 Route::post('/cache/flush/menu-items', [CacheController::class, 'flushMenuItemsCache']);
+Route::post('/menu-items/banners/flush-cache', [MenuItemBannerController::class, 'flushCache']);
 Route::post('/cache/flush/all', [CacheController::class, 'flushAllCache']);
 Route::get('/cache/stats', [CacheController::class, 'getCacheStats']);
 
@@ -431,7 +432,7 @@ Route::post('/mobile/orders/place-basic', [OrderSupportController::class, 'place
 
 
 Route::post('/driver/login', [DriverControllerLogin::class, 'driverLogin']);
-Route::post('/driver/signup', [App\Http\Controllers\Api\DriverControllerLogin::class, 'driverSignup']);
+Route::post('/drivers/signup',  [DriverControllerLogin::class, 'driverSignup']);
 Route::get('/users/{firebase_id}', [DriverUserController::class, 'getUserProfile']);
 
 
