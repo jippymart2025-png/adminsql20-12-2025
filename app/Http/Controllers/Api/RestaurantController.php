@@ -27,6 +27,62 @@ class RestaurantController extends Controller
      * - user_id (optional): For subscription filtering
      * - refresh (optional): Force refresh cache (bypass cache)
      */
+    public function bestrestaurants(Request $request)
+    {
+        // Validate request
+        $validator = Validator::make($request->all(), [
+            'zone_id' => 'required|string',
+            'user_id' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $zoneId = $request->input('zone_id');
+        $userId = $request->input('user_id');
+
+        try {
+            $restaurants = Vendor::query()
+                ->where('zoneId', $zoneId)
+                ->where('best', 1)
+                ->where(function ($q) {
+                    $q->where('publish', true)->orWhereNull('publish');
+                })
+                ->get();
+
+            $formattedData = $restaurants->map(function ($restaurant) use ($userId) {
+                return $this->formatRestaurantResponse($restaurant, $userId);
+            });
+
+            return response()->json([
+                'success' => true,
+                'count' => $formattedData->count(),
+                'data' => $formattedData,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Fetch Best Restaurants Error: ' . $e->getMessage(), [
+                'zone_id' => $zoneId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch best restaurants',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    } // ✅ THIS brace was missing
+
+
+
+
     public function nearest(Request $request)
     {
         // Validate request
@@ -94,6 +150,7 @@ class RestaurantController extends Controller
             $query = Vendor::query()
                 ->select('vendors.*')
                 ->where('zoneId', $zoneId)
+                ->where('best', 0)
                 ->where(function ($q) {
                     $q->where('publish', true)->orWhereNull('publish');
                 });

@@ -565,14 +565,14 @@ class FirestoreBridgeController extends Controller
      */
     public function fetchActivePromotions(Request $request): \Illuminate\Http\JsonResponse
     {
-        $restaurantId = $request->query('restaurant_id');
+        $Zoneid = $request->query('zoneId');
 
 //        if (!$restaurantId) {
 //            return $this->error('restaurant_id is required', 422);
 //        }
 
         $promotions = DB::table('promotions')
-//            ->where('restaurant_id', $restaurantId)
+            ->where('zoneId', $Zoneid)
             ->where('isAvailable', 1)
             ->get();
 

@@ -237,6 +237,7 @@ class MobileSqlBridgeController extends Controller
             'coupon_id' => ['nullable', 'string'],
             'coupon_code' => ['nullable', 'string'],
             'discount' => ['nullable', 'numeric', 'min:0'],
+            'promotion' => ['nullable', 'numeric'],
             'notes' => ['nullable', 'string'],
             'schedule_time' => ['nullable', 'date'],
             'surge_percent' => ['nullable', 'numeric', 'min:0'],
@@ -292,6 +293,9 @@ class MobileSqlBridgeController extends Controller
         $orderId = $this->generateOrderId();
         $now = Carbon::now()->toISOString();
 
+        // Get promotion value - ensure it's properly cast to int (1 or 0)
+        $promotion = (int) $request->input('promotion', 0);
+
         $orderData = [
             'id'                    => $orderId,
             'vendorID'              => (string) $request->vendor_id,
@@ -306,6 +310,7 @@ class MobileSqlBridgeController extends Controller
             'payment_method'        => $request->payment_method,
             'couponId'              => $request->coupon_id ?? '',
             'couponCode'            => $request->coupon_code ?? '',
+            'promotion'             => $promotion,
             'ToPay'                 => $totalAmount,
             'toPayAmount'           => $totalAmount,
             'surge_fee'             => $totalSurgeFee,

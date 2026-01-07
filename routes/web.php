@@ -1466,6 +1466,7 @@ Route::middleware(['permission:restaurants,restaurants'])->group(function () {
     Route::get('/restaurants/{id}/data', [App\Http\Controllers\RestaurantController::class, 'getRestaurantById'])->name('restaurants.getById');
     Route::get('/restaurants/{id}/stats', [App\Http\Controllers\RestaurantController::class, 'getRestaurantStats'])->name('restaurants.stats');
     Route::post('/restaurants/global-status', [App\Http\Controllers\RestaurantController::class, 'updateGlobalStatus'])->name('restaurants.global-status');
+    Route::post('/restaurants/{id}/toggle-best', [App\Http\Controllers\RestaurantController::class, 'toggleRestaurantBestStatus'])->name('restaurants.toggle-best');
     Route::get('/api/users/{id}', [App\Http\Controllers\UserController::class, 'getUserById'])->name('users.api.getById');
     Route::get('/api/users/{id}/wallet-balance', [App\Http\Controllers\UserController::class, 'getWalletBalance'])->name('users.api.wallet-balance');
 //    Route::post('/users/wallet/add', [App\Http\Controllers\UserController::class, 'addWalletAmount'])->name('users.api.wallet.add');
@@ -1547,6 +1548,7 @@ Route::prefix('cache-test')->group(function () {
     Route::get('/config', [App\Http\Controllers\CacheTestController::class, 'getCacheConfig'])->name('cache-test.config');
 
 });
+
 
 Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 Route::get('/dashboard/stats', [DashboardController::class, 'getStats']);

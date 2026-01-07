@@ -44,6 +44,12 @@ class MenuItemBannerController extends Controller
         return $this->getMenuItemsByPosition($request, 'bottom');
     }
 
+    public function deals(Request $request)
+    {
+        return $this->getMenuItemsByPosition($request, 'deals');
+    }
+
+
     /**
      * Common function to fetch menu items by position
      * OPTIMIZED: Cached for 24 hours for fast loading

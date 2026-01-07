@@ -33,6 +33,7 @@ class OrderSupportController extends Controller
             'products.*.quantity' => ['required', 'numeric', 'min:1'],
             'payment_method' => ['required', 'string'],
             'delivery_charge' => ['required', 'numeric'],
+            'promotion' => ['required', 'numeric'],
             'discount' => ['nullable', 'numeric'],
             'coupon_id' => ['nullable', 'string'],
             'coupon_code' => ['nullable', 'string'],
@@ -65,6 +66,7 @@ class OrderSupportController extends Controller
                     'deliveryCharge' => (string) $request->input('delivery_charge'),
                     'discount' => (string) ($request->input('discount') ?? 0),
                     'couponId' => $request->input('coupon_id') ?? '',
+                    'promotion' => (int) $request->input('promotion', 0),
                     'couponCode' => $request->input('coupon_code') ?? '',
                     'ToPay' => (string) $request->input('to_pay'),
                     'toPayAmount' => (float) $request->input('to_pay'),
@@ -244,11 +246,11 @@ class OrderSupportController extends Controller
             $toPay = (string) $request->input('to_pay');
             $surgeFee = (float) $request->input('surge_fee');
             $adminSurgeFee = (string) $request->input('admin_surge_fee');
-            
+
             // Calculate total surge fee
             $adminSurgeFeeNumeric = (float) $adminSurgeFee;
             $totalSurgeFee = (string) ($surgeFee + $adminSurgeFeeNumeric);
-            
+
             // Use provided created_at or current time
             $createdAt = $request->input('created_at');
             if (empty($createdAt)) {
@@ -257,7 +259,7 @@ class OrderSupportController extends Controller
 
             // Check if billing record already exists
             $existing = DB::table('order_billing')->where('orderId', $orderId)->first();
-            
+
             $billingData = [
                 'createdAt' => $createdAt,
                 'orderId' => $orderId,
@@ -272,7 +274,7 @@ class OrderSupportController extends Controller
                 DB::table('order_billing')
                     ->where('orderId', $orderId)
                     ->update($billingData);
-                
+
                 return $this->success([
                     'order_id' => $orderId,
                     'billing' => $billingData,
@@ -281,7 +283,7 @@ class OrderSupportController extends Controller
                 // Create new record
                 $billingData['id'] = (string) Str::uuid();
                 DB::table('order_billing')->insert($billingData);
-                
+
                 return $this->success([
                     'order_id' => $orderId,
                     'billing' => $billingData,

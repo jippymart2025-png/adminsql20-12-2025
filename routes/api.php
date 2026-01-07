@@ -155,6 +155,7 @@ Route::get('/mobile/orders/{orderId}/billing/to-pay', [OrderSupportController::c
 
 // Restaurant/Vendor API routes
 Route::get('/restaurants/nearest', [RestaurantController::class, 'nearest']);
+Route::get('/restaurants/bestrestaurants', [RestaurantController::class, 'bestrestaurants']);
 Route::get('/restaurants/search', [RestaurantController::class, 'search']);
 Route::get('/restaurants/by-zone/{zone_id}', [RestaurantController::class, 'byZone']);
 Route::get('/restaurants/{id}', [RestaurantController::class, 'show'])
@@ -176,6 +177,8 @@ Route::get('/banners/{id}', [BannerController::class, 'show']);
 Route::get('/menu-items/banners/top', [MenuItemBannerController::class, 'top']);
 Route::get('/menu-items/banners/middle', [MenuItemBannerController::class, 'middle']);
 Route::get('/menu-items/banners/bottom', [MenuItemBannerController::class, 'bottom']);
+Route::get('/menu-items/banners/deals', [MenuItemBannerController::class, 'deals']);
+
 //Route::get('/menu-items/banners', [MenuItemBannerController::class, 'index']);
 Route::get('/menu-items/banners/{id}', [MenuItemBannerController::class, 'show']);
 

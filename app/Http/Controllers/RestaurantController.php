@@ -2345,6 +2345,7 @@ class RestaurantController extends Controller
                     'vType' => $restaurant->vType ?? 'restaurant',
                     'walletAmount' => $restaurant->walletAmount ?? 0,
                     'adminCommission' => $adminCommission, // Include adminCommission object with fix_commission
+                    'best' => $restaurant->best == 1 || $restaurant->best === 'true' || $restaurant->best === true, // Include best status
                 ];
 
                 $data[] = $restaurantData;
@@ -4041,5 +4042,72 @@ class RestaurantController extends Controller
         return response()->json([
             'url' => asset('storage/' . $path)
         ]);
+
+    }
+    public function toggleRestaurantBestStatus($id)
+    {
+        try {
+            // Try to find by string ID column first, then by numeric primary key
+            $restaurant = Vendor::where('id', $id)->first();
+
+            if (!$restaurant && is_numeric($id)) {
+                $restaurant = Vendor::find($id);
+            }
+
+            if (!$restaurant) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Restaurant not found with ID: ' . $id
+                ], 404);
+            }
+
+            $currentBest = $this->toBoolInt($restaurant->best);
+            $newBestStatus = $currentBest ? 0 : 1;
+
+            // If trying to set as best, check zone limit
+            if ($newBestStatus == 1) {
+                $zoneId = $restaurant->zoneId;
+
+                // Count current best restaurants in the same zone
+                $bestCount = Vendor::where('zoneId', $zoneId)
+                    ->where('best', 1)
+                    ->where('id', '!=', $restaurant->id) // Exclude current restaurant
+                    ->count();
+
+                // Maximum 9 best restaurants per zone
+                if ($bestCount >= 9) {
+                    $zoneName = 'Unknown Zone';
+                    if ($zoneId) {
+                        $zone = DB::table('zone')->where('id', $zoneId)->first();
+                        if ($zone) {
+                            $zoneName = $zone->name;
+                        }
+                    }
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Cannot set as best. Maximum 9 best restaurants allowed per zone. Zone '{$zoneName}' already has 9 best restaurants.",
+                        'best_count' => $bestCount,
+                        'max_allowed' => 9
+                    ], 422);
+                }
+            }
+
+            // Update best status
+            $restaurant->best = $newBestStatus;
+            $restaurant->save();
+
+            return response()->json([
+                'success' => true,
+                'best' => (bool) $restaurant->best,
+                'message' => $newBestStatus ? 'Restaurant marked as best' : 'Restaurant unmarked as best'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error toggling restaurant best status: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error toggling restaurant best status: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

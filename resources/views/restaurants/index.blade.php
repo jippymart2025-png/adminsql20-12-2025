@@ -233,6 +233,7 @@
                                             <th>Admin Commission</th>
                                             <th>{{trans('lang.date')}}</th>
                                             <th>{{trans('lang.wallet_history')}}</th>
+                                            <th>Best</th>
                                             <th>{{trans('lang.actions')}}</th>
                                         </tr>
                                     </thead>
@@ -684,7 +685,7 @@
                         return data;
                     }
                 },
-                { orderable: false, targets: (checkDeletePermission) ? [0, 5, 6] : [4, 5] },
+                { orderable: false, targets: (checkDeletePermission) ? [0, 6, 7, 8] : [5, 6, 7] } // Delete, wallet_history, best, and actions columns are not sortable
             ],
             "language": {
                 "zeroRecords": "{{trans('lang.no_record_found')}}",
@@ -862,6 +863,17 @@
         food_url = food_url.replace(":id", vendorId);
         var vendor_url = '{{route("restaurants.orders",":id")}}';
         vendor_url = vendor_url.replace(":id", vendorId);
+        // Best column - Toggle button
+        var bestHtml = '';
+        var isBest = val.best === true || val.best === 1 || val.best === '1';
+        var bestIconClass = isBest ? 'mdi-star' : 'mdi-star-outline';
+        var bestColorClass = isBest ? 'text-warning' : 'text-muted';
+        var bestTitle = isBest ? 'Mark as not best' : 'Mark as best';
+
+        bestHtml = `<a href="javascript:void(0)" class="toggle-best-btn" data-restaurant-id="${val.id}" data-restaurant-name="${val.title || 'Restaurant'}" data-current-best="${isBest ? 1 : 0}" title="${bestTitle}" style="cursor: pointer; display: inline-block; text-decoration: none;">
+            <i class="mdi ${bestIconClass} ${bestColorClass}" style="font-size: 20px;"></i>
+        </a>`;
+        html.push(bestHtml);
         var actionHtml = '';
         actionHtml += `<span class="action-btn">
             <a href="${food_url}"><i class="mdi mdi-food" title="Foods"></i></a>
@@ -1251,5 +1263,86 @@
              notification.alert('close');
          }, 5000);
      }
+
+     // Handle best restaurant toggle
+     $(document).on('click', '.toggle-best-btn', function(e) {
+         e.preventDefault();
+         e.stopPropagation(); // Prevent event bubbling
+
+         const $btn = $(this);
+         const restaurantId = $btn.attr('data-restaurant-id') || $btn.data('restaurant-id');
+         const restaurantName = $btn.attr('data-restaurant-name') || $btn.data('restaurant-name');
+         const currentBest = $btn.attr('data-current-best') == 1 || $btn.data('current-best') == 1;
+         const $icon = $btn.find('i');
+
+         // Validate restaurant ID
+         if (!restaurantId) {
+             console.error('Restaurant ID not found');
+             showNotification('error', 'Restaurant ID not found');
+             return;
+         }
+
+         // Show loading state
+         const originalClass = $icon.attr('class');
+         const originalStyle = $icon.attr('style') || 'font-size: 20px;';
+         $icon.attr('class', 'mdi mdi-loading mdi-spin text-primary');
+         $icon.attr('style', originalStyle);
+         $btn.prop('disabled', true).css('pointer-events', 'none');
+
+         // Build URL - construct it properly
+         const baseUrl = '{{ url("/restaurants") }}';
+         const url = baseUrl + '/' + encodeURIComponent(restaurantId) + '/toggle-best';
+
+         console.log('Toggling best status for restaurant:', restaurantId, 'URL:', url);
+
+         $.ajax({
+             url: url,
+             method: 'POST',
+             headers: {
+                 'X-CSRF-TOKEN': '{{ csrf_token() }}'
+             },
+             success: function(response) {
+                 if (response.success) {
+                     // Update UI
+                     const isBest = response.best;
+                     const newIconClass = isBest ? 'mdi-star' : 'mdi-star-outline';
+                     const newColorClass = isBest ? 'text-warning' : 'text-muted';
+                     const newTitle = isBest ? 'Mark as not best' : 'Mark as best';
+
+                     $icon.attr('class', 'mdi ' + newIconClass + ' ' + newColorClass);
+                     $icon.attr('style', originalStyle);
+                     $btn.attr('title', newTitle);
+                     $btn.data('current-best', isBest ? 1 : 0);
+
+                     showNotification('success', response.message || (isBest ? 'Restaurant marked as best' : 'Restaurant unmarked as best'));
+
+                     // Reload table to reflect changes
+                     if ($.fn.dataTable.isDataTable('#storeTable')) {
+                         $('#storeTable').DataTable().ajax.reload(null, false);
+                     }
+                 } else {
+                     showNotification('error', response.message || 'Unable to update best status');
+                     // Restore original icon
+                     $icon.attr('class', originalClass);
+                     $icon.attr('style', originalStyle);
+                 }
+             },
+             error: function(xhr) {
+                 let errorMsg = 'Unable to update best status';
+                 if (xhr.responseJSON && xhr.responseJSON.message) {
+                     errorMsg = xhr.responseJSON.message;
+                 } else if (xhr.status === 422 && xhr.responseJSON) {
+                     errorMsg = xhr.responseJSON.message || 'Validation error: Maximum 9 best restaurants allowed per zone';
+                 }
+                 showNotification('error', errorMsg);
+                 // Restore original icon
+                 $icon.attr('class', originalClass);
+                 $icon.attr('style', originalStyle);
+             },
+             complete: function() {
+                 $btn.prop('disabled', false).css('pointer-events', 'auto');
+             }
+         });
+     });
 </script>
 @endsection

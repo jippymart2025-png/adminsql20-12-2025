@@ -32,8 +32,9 @@ class Vendor extends Model
         'isOpen',
         'author',
         'vType',
-        'adminCommission'
-    ];
+        'adminCommission',
+        'best'
+        ];
 
     protected $casts = [
         'latitude' => 'float',
@@ -46,7 +47,8 @@ class Vendor extends Model
         'DeliveryCharge' => 'boolean',
         'isSelfDelivery' => 'boolean',
         'hidephotos' => 'boolean',
-        'reststatus' => 'boolean'
+        'reststatus' => 'boolean',
+        'best' => 'boolean'
     ];
 
     public function payouts()

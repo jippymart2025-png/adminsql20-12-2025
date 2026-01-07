@@ -295,6 +295,7 @@ class SwiggySearchController extends Controller
             'description'=> $p->description,
             'price'      => $p->price,
             'disPrice'   => $p->disPrice,
+            'isAvailable' => $p->isAvailable,
             'photo'      => $p->photo,
             'categoryID' => $p->categoryID,
             'vendorID'   => $p->vendorID,
